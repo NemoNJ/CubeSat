@@ -1,0 +1,17 @@
+function [wheel, MTQ] = switching_mode(H, H_threshold)
+    H_recall = 1e-10;
+    if any(abs(H) >= H_threshold)
+        status = 1;
+    elseif all(abs(H) <= H_recall)
+        status = 0;
+    end
+
+    if status == 1
+        wheel = 0;
+        MTQ   = 1;
+    else
+        wheel = 1;
+        MTQ   = 0;
+    end
+
+end
