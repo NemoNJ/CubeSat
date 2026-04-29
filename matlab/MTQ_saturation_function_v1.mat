@@ -1,0 +1,42 @@
+function [dump_flag, alpha, h_norm_ratio, wheel_sat_flag] = saturation_trigger(h_wheel, h_max, threshold)
+%SATURATION_TRIGGER ตรวจจับ Desaturation จาก norm รวม + individual wheel
+%
+% Inputs:
+%   h_wheel    [4x1] - Angular momentum แต่ละล้อ [Nms]
+%   h_max      [1x1] - Max momentum ต่อล้อ [Nms]
+%   threshold  [1x1] - Trigger threshold (เช่น 0.8)
+%
+% Outputs:
+%   dump_flag      [1x1] bool  - 1 = trigger desaturation
+%   alpha          [1x1] 0~1  - Blending factor (smooth)
+%   h_norm_ratio   [1x1] 0~1  - สัดส่วน norm รวม (monitor)
+%   wheel_sat_flag [4x1] bool - ล้อไหนที่เกิน threshold บ้าง
+
+%% ── 1. Norm รวมทั้งระบบ ──────────────────────────────────────────
+h_norm       = norm(h_wheel);
+h_total_max  = h_max * 4;
+h_norm_ratio = h_norm / (h_total_max + 1e-23);   % 0~1
+
+%% ── 2. Individual Wheel Check ────────────────────────────────────
+h_limit          = threshold * h_max;             % เส้น threshold ต่อล้อ
+wheel_sat_flag   = abs(h_wheel) > h_limit;        % [4x1] logical
+any_wheel_sat    = any(wheel_sat_flag);            % bool
+
+%% ── 3. Combined Trigger ──────────────────────────────────────────
+dump_flag       = (h_norm_ratio >= threshold) || any_wheel_sat; % OR condition
+
+%% ── 4. Alpha: เลือก ratio ที่ severe ที่สุด ──────────────────────
+if dump_flag
+    % หา wheel ที่ saturate มากที่สุด (relative to h_max)
+    wheel_ratios    = abs(h_wheel) / (h_max + 1e-23);  % [4x1] 0~1
+    worst_wheel     = max(wheel_ratios);                % scalar
+
+    % เลือก ratio ที่มากกว่าระหว่าง norm vs worst wheel
+    dominant_ratio  = max(h_norm_ratio, worst_wheel);
+
+    % Linear ramp หลัง threshold
+    alpha = (dominant_ratio - threshold) / (1.0 - threshold);
+    alpha = min(max(alpha, 0.0), 1.0);  % clamp [0, 1]
+else
+    alpha = 0.0;
+end
