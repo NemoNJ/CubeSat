@@ -1,0 +1,64 @@
+% B_dot version
+function T_mtq = mtq_controller(B_dot, B_body, k_mtq, m_max, alpha, dump_flag)
+%MTQ_CONTROLLER  Magnetorquer torque during desaturation
+%  ใช้ B-dot law + projection perpendicular to B + alpha blending
+%
+%  Inputs:
+%    B_body    [3x1]  geomagnetic field in body frame [T]
+%    B_dot     [3x1]  derivative of B_body [T/s]
+%    dump_flag [1x1]  1 = desaturation active
+%    alpha     [1x1]  blending factor 0~1 จาก saturation_trigger
+%    k_mtq     [1x1]  B-dot gain [A·m²·s/T]  (แนะนำ: 1e4)
+%    m_max     [1x1]  max magnetic moment per axis [A·m²] (แนะนำ: 0.1)
+%
+%  Outputs:
+%    T_mtq     [3x1]  MTQ torque in body frame [N·m]
+%
+%  Algorithm:
+%    Step 1: B-dot law          → m_raw  = -k_mtq * B_dot         (eq.2-7)
+%    Step 2: Project ⊥ to B     → m_perp (only ⊥ component creates torque)
+%    Step 3: Clamp to hardware  → m_cmd  = clamp(m_perp, ±m_max)  (eq.2-6)
+%    Step 4: Compute torque     → T_full = skew(m_cmd) × B_body   (eq.2-4)
+%    Step 5: Alpha blending     → T_mtq  = alpha × T_full
+
+%% ── Early exit เมื่อ MTQ ไม่ถูกสั่งให้ทำงาน ─────────────────────
+if ~dump_flag
+    T_mtq = zeros(3,1);
+    return;
+end
+
+%% ── Step 1: B-dot Law (eq. 2-7) ─────────────────────────────────
+% m_raw [A·m²] = -k_mtq × B_dot
+% k_mtq = 1e4 ให้ m_raw ~ 1e-3 A·m² สำหรับ B_dot ~ 1e-7 T/s
+m_raw = -k_mtq * B_dot;
+
+%% ── Step 2: Project perpendicular to B_body (eq. 2-6) ───────────
+% เอาเฉพาะส่วนที่ตั้งฉากกับ B เพราะส่วนขนานไม่สร้าง torque
+% m_perp = m_raw - (m_raw · b̂) b̂
+%        = m_raw - (dot(m_raw, B_body) / |B_body|²) * B_body
+b_norm_sq = dot(B_body, B_body) + 1e-30;           % ป้องกัน divide by zero
+m_perp    = m_raw - (dot(m_raw, B_body) / b_norm_sq) * B_body;
+
+%% ── Step 3: Clamp แต่ละแกนตาม hardware limit ────────────────────
+% m_max = 0.1 A·m² → torque สูงสุด ≈ 0.1 × 4e-5 = 4e-6 Nm
+m_cmd = max(-m_max, min(m_max, m_perp));            % [3x1] clamp
+
+%% ── Step 4: Torque via skew-symmetric matrix (eq. 2-4) ──────────
+% T_full = m_cmd × B_body = skew(m_cmd) * B_body
+T_mtq_full = skew(m_cmd) * B_body;                 % [3x1] Nm
+
+%% ── Step 5: Alpha blending ───────────────────────────────────────
+% alpha = 1.0 (full power) จาก saturation_trigger ที่แก้แล้ว
+% เก็บ step นี้ไว้เพื่อ compatibility และ future tuning
+T_mtq = alpha * T_mtq_full;                         % [3x1] Nm
+
+end
+
+%% ── Helper: Skew-symmetric matrix ───────────────────────────────
+function S = skew(v)
+%SKEW สร้าง skew-symmetric matrix จาก vector 3x1
+% skew(v) * u = v × u  (cross product)
+S = [ 0     -v(3)  v(2);
+      v(3)   0    -v(1);
+     -v(2)   v(1)  0   ];
+end
