@@ -1,0 +1,24 @@
+function mtq_activate = mtq_activation(Hx, Hy, Hz, H_max, threshold_off,threshold_on)
+    persistent state;
+    if isempty(state)
+        state = 0;
+    end
+    
+    limit_off = H_max * threshold_off;
+    limit_on = H_max * threshold_on;
+    
+    if state == 0
+        if abs(Hx) > limit_off  && abs(Hy) > limit_off  && abs(Hz) > limit_off 
+            state = 1;
+        end
+        mtq_activate = 0;
+        
+    else % state == 1
+        if abs(Hx) < limit_on && abs(Hy) < limit_on && abs(Hz) < limit_on
+            mtq_activate = 1;
+            state = 0;
+        else
+            mtq_activate = 0;
+        end
+    end
+end
